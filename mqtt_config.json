@@ -1,9 +1,0 @@
-{
-  "broker": "broker.emqx.io",
-  "port": 1883,
-  "topics": {
-    "pi_to_laptop": "raspberry/pi_to_laptop",
-    "laptop_to_pi": "raspberry/laptop_to_pi",
-    "status": "raspberry/status"
-  }
-}
