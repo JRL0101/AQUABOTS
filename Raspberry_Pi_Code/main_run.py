@@ -10,6 +10,10 @@ BROKER = "broker.emqx.io"
 PORT = 1883
 TOPIC_TO_LAPTOP = "raspberry/pi_to_laptop"
 TOPIC_FROM_LAPTOP = "raspberry/laptop_to_pi"
+HEARTBEAT_TOPIC = "raspberry/heartbeat"
+
+# Drone identifier
+DRONE_ID = os.getenv("DRONE_ID", "drone_1")
 
 # Paths to compiled C++ programs
 TEMP_PROGRAM = "./temperature"
@@ -34,11 +38,12 @@ class SensorHub:
         self.mqtt_client.on_message = self.on_mqtt_message
         self.mqtt_client.connect(BROKER, PORT, 60)
         self.mqtt_client.loop_start()
-        
-        # Start sensor threads
+
+        # Start sensor and heartbeat threads
         Thread(target=self.read_temperature, daemon=True).start()
         Thread(target=self.read_imu, daemon=True).start()
         Thread(target=self.read_gps, daemon=True).start()
+        Thread(target=self.send_heartbeat, daemon=True).start()
         
     def on_mqtt_connect(self, client, userdata, flags, rc):
         print(f"Connected to MQTT broker with result code {rc}")
@@ -50,14 +55,37 @@ class SensorHub:
             if msg.topic == TOPIC_FROM_LAPTOP:
                 command = payload.get("command")
                 action = payload.get("action")
-                
-                if command == "emergency" and action == "shutdown":
-                    subprocess.run(["sudo","./Bmotor_testOff"])
-                    print("EMERGENCY STOP RECEIVED - SHUTTING DOWN")
-                    self.stop()
-                    
+                target = payload.get("target", "all")
+
+                if target in ("all", DRONE_ID):
+                    if command == "emergency" and action == "shutdown":
+                        subprocess.run(["sudo", MotorOff])
+                        print("EMERGENCY STOP RECEIVED - SHUTTING DOWN")
+                        self.stop()
+                    elif command == "control":
+                        if action == "start":
+                            subprocess.run(["sudo", MotorOn])
+                        elif action == "stop":
+                            subprocess.run(["sudo", MotorOff])
+
         except Exception as e:
             print(f"Error processing command: {str(e)}")
+
+    def send_heartbeat(self):
+        while not self.stop_event.is_set():
+            payload = {
+                "type": "heartbeat",
+                "system_id": DRONE_ID,
+                "component_id": 1,
+                "autopilot": 0,
+                "base_mode": 0,
+                "custom_mode": 0,
+                "system_status": 0,
+                "mavlink_version": 3,
+                "timestamp": time.time(),
+            }
+            self.mqtt_client.publish(HEARTBEAT_TOPIC, json.dumps(payload))
+            time.sleep(1)
     
     def read_temperature(self):
         while not self.stop_event.is_set():
@@ -177,6 +205,7 @@ class SensorHub:
     
     def send_data(self, sensor_type, data):
         payload = {
+            "drone_id": DRONE_ID,
             "sensor": sensor_type,
             "data": data,
             "timestamp": time.time()
