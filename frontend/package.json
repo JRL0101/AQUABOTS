@@ -1,0 +1,9 @@
+{
+  "name": "aquabots-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "echo 'Open index.html in a browser.'",
+    "test": "echo 'No tests specified' && exit 0"
+  }
+}
