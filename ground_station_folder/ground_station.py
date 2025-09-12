@@ -21,12 +21,15 @@ class DroneControlGUI:
         self.connection_monitor_active = True
         self.connection_check_interval = 5  # seconds
         
-        # Temperature graph data
-        self.temperature_history = []
-        self.time_history = []
-        self.gps_history = []  # Stores (lat, lon) tuples
+        # Temperature graph data (per drone)
+        self.temperature_history = {}
+        self.time_history = {}
+        self.gps_history = {}  # drone_id -> [(lat, lon)]
         self.max_points = 50
-        self.last_valid_gps = (None, None)  # (lat, lon)
+        self.last_valid_gps = {}  # drone_id -> (lat, lon)
+
+        # Map markers for multiple drones
+        self.drone_markers = {}
         
         # Setup MQTT
         self.mqtt = MQTTHandler()
@@ -114,11 +117,18 @@ class DroneControlGUI:
     
         # Schedule next blink (500ms interval)
         self.root.after(400, self.blink_indicators)
-    def update_map(self, lat, lon):
-            """Update drone position on map"""
-            if hasattr(self, 'drone_marker') and hasattr(self, 'map_widget'):
-                self.drone_marker.set_position(lat, lon)
-                self.map_widget.set_position(lat, lon)
+    def update_map(self, drone_id, lat, lon):
+        """Update or create a drone marker on the map."""
+        if not hasattr(self, "map_widget"):
+            return
+        marker = self.drone_markers.get(drone_id)
+        if marker is None:
+            self.drone_markers[drone_id] = self.map_widget.set_marker(
+                lat, lon, text=str(drone_id)
+            )
+        else:
+            marker.set_position(lat, lon)
+        self.map_widget.set_position(lat, lon)
     def setup_left_panel(self):
         """Create left panel with top and bottom sections"""
         # Top section - Component Conditions with layered images
@@ -291,25 +301,28 @@ class DroneControlGUI:
         self.temp_canvas.draw()
         self.temp_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     
-    def update_temperature_graph(self):
-        """Update the temperature graph with new data"""
-        if len(self.temperature_history) == 0:
+    def update_temperature_graph(self, drone_id):
+        """Update the temperature graph with new data for a specific drone."""
+        temps = self.temperature_history.get(drone_id)
+        times = self.time_history.get(drone_id)
+        gps_hist = self.gps_history.get(drone_id)
+        if not temps or not times:
             return
-        
+
         # Clear previous annotations
-        for ann in self.temp_annotations:
+        for ann in getattr(self, "temp_annotations", []):
             ann.remove()
         self.temp_annotations = []
-        
+
         # Convert timestamps to relative seconds for x-axis
-        time_deltas = [(t - self.time_history[0]).total_seconds() for t in self.time_history]
-        
+        time_deltas = [(t - times[0]).total_seconds() for t in times]
+
         # Update plot data
-        self.temp_line.set_data(time_deltas, self.temperature_history)
-        self.temp_points.set_data(time_deltas, self.temperature_history)
-        
+        self.temp_line.set_data(time_deltas, temps)
+        self.temp_points.set_data(time_deltas, temps)
+
         # Add annotations for GPS coordinates
-        for i, (t, temp, gps) in enumerate(zip(time_deltas, self.temperature_history, self.gps_history)):
+        for t, temp, gps in zip(time_deltas, temps, gps_hist):
             if gps != (None, None):
                 lat, lon = gps
                 ann = self.temp_ax.annotate(
@@ -318,14 +331,14 @@ class DroneControlGUI:
                     xytext=(5, 5),
                     textcoords='offset points',
                     bbox=dict(boxstyle='round,pad=0.5', fc='white', alpha=0.7),
-                    fontsize=8
+                    fontsize=8,
                 )
                 self.temp_annotations.append(ann)
-        
+
         # Adjust axes
         self.temp_ax.relim()
         self.temp_ax.autoscale_view()
-        
+
         # Redraw
         self.temp_canvas.draw()
 
@@ -384,6 +397,7 @@ class DroneControlGUI:
             'emergency': {'bg': '#d32f2f', 'fg': 'white', **button_style},
             'stop': {'bg': '#FFA000', 'fg': 'white', **button_style},
             'save': {'bg': '#388E3C', 'fg': 'white', **button_style},
+            'start': {'bg': '#4CAF50', 'fg': 'white', **button_style},
             'nav': {'bg': '#1976D2', 'fg': 'white', **button_style}
         }
     
@@ -540,7 +554,16 @@ class DroneControlGUI:
         padding_frame = tk.Frame(button_container, bg=self.bg_color)
         padding_frame.pack(side=tk.RIGHT)
         
-        # Save Data button (topmost)
+        # Start All button
+        self.start_btn = tk.Button(
+            padding_frame,
+            text="START ALL",
+            command=lambda: self.mqtt.send_command("control", "start", target="all"),
+            **self.button_styles['start']
+        )
+        self.start_btn.pack(fill=tk.X, pady=5)
+
+        # Save Data button
         self.save_btn = tk.Button(
             padding_frame,
             text="SAVE DATA",
@@ -548,17 +571,17 @@ class DroneControlGUI:
             **self.button_styles['save']
         )
         self.save_btn.pack(fill=tk.X, pady=5)
-        
-        # Pause Operations button (middle)
+
+        # Pause Operations button
         self.stop_btn = tk.Button(
             padding_frame,
             text="PAUSE OPERATIONS",
-            command=self.stop_operations,
+            command=lambda: self.mqtt.send_command("control", "stop", target="all"),
             **self.button_styles['stop']
         )
         self.stop_btn.pack(fill=tk.X, pady=5)
-        
-        # Emergency Stop button (bottom)
+
+        # Emergency Stop button
         self.emergency_btn = tk.Button(
             padding_frame,
             text="EMERGENCY STOP",
@@ -598,7 +621,7 @@ class DroneControlGUI:
     
     def stop_operations(self):
         """Send normal stop command and re-enable GPS inputs"""
-        self.mqtt.send_command("control", "stop")
+        self.mqtt.send_command("control", "stop", target="all")
         self.drone_status_var.set("STOP COMMAND SENT")
         self.drone_status_label.config(fg="white")  # Reset to white
         
@@ -609,17 +632,16 @@ class DroneControlGUI:
     
     def update_sensor_display(self, data):
         """Update sensor display with new data"""
-        #print("Received Data:", data)
         self.last_update_time = time.time()  # Update last received message time
         self.update_connection_status(True)  # Confirm connection is active
-    
+
+        drone_id = data.get('drone_id', 'unknown')
         sensor_type = data['sensor']
         value = data['value']
-    
+
         if sensor_type == "temperature":
             if value == self.mqtt.TEMP_ERROR:
-                last_valid = self.mqtt.get_last_temp_reading()
-                # Only show "ERROR" if we have no valid readings yet
+                last_valid = self.mqtt.get_last_temp_reading(drone_id)
                 if last_valid == self.mqtt.TEMP_ERROR:
                     display = "ERROR"
                 else:
@@ -628,20 +650,17 @@ class DroneControlGUI:
             else:
                 display = f"{value}°C"
                 self.temp_var.set(display)
-                # Only graph if not error and we have GPS data
-                if value != self.mqtt.TEMP_ERROR and self.last_valid_gps != (None, None):
-                    self.temperature_history.append(float(value))
-                    self.time_history.append(datetime.now())
-                    self.gps_history.append(self.last_valid_gps)
-                
-                    # Keep only the most recent points
-                    if len(self.temperature_history) > self.max_points:
-                        self.temperature_history.pop(0)
-                        self.time_history.pop(0)
-                        self.gps_history.pop(0)
-                
-                    # Update the graph
-                    self.update_temperature_graph()
+                if value != self.mqtt.TEMP_ERROR and self.last_valid_gps.get(drone_id):
+                    self.temperature_history.setdefault(drone_id, []).append(float(value))
+                    self.time_history.setdefault(drone_id, []).append(datetime.now())
+                    self.gps_history.setdefault(drone_id, []).append(self.last_valid_gps[drone_id])
+
+                    if len(self.temperature_history[drone_id]) > self.max_points:
+                        self.temperature_history[drone_id].pop(0)
+                        self.time_history[drone_id].pop(0)
+                        self.gps_history[drone_id].pop(0)
+
+                    self.update_temperature_graph(drone_id)
     
         #elif sensor_type == "imu":
             #if value == self.mqtt.IMU_ERROR:
@@ -656,24 +675,22 @@ class DroneControlGUI:
                 #self.imu_var.set(display)
     
         elif sensor_type == "gps":
-            #print("GPS Value Received:", value)  # Debug line
             lat = value.get("lat") if isinstance(value, dict) else None
             lon = value.get("lon") if isinstance(value, dict) else None
-            #print(f"Extracted Lat/Lon: {lat}, {lon}")  # Debug line
-        
+
             if lat is None or lat == self.mqtt.GPS_ERROR:
-                last_valid = self.mqtt.get_last_gps_reading()
+                last_valid = self.mqtt.get_last_gps_reading(drone_id)
                 if last_valid and last_valid['lat'] != self.mqtt.GPS_ERROR:
                     display = f"ERROR (Last: {last_valid['lat']:.6f}, {last_valid['lon']:.6f})"
-                    self.last_valid_gps = (last_valid['lat'], last_valid['lon'])
+                    self.last_valid_gps[drone_id] = (last_valid['lat'], last_valid['lon'])
                 else:
                     display = "ERROR"
-                    self.last_valid_gps = (None, None)
+                    self.last_valid_gps[drone_id] = (None, None)
                 self.gps_var.set(display)
             else:
                 display = f"{lat:.6f}, {lon:.6f}"
                 self.gps_var.set(display)
-                self.last_valid_gps = (lat, lon)
+                self.last_valid_gps[drone_id] = (lat, lon)
     
     def save_sensor_data(self):
         """Save collected data to file"""

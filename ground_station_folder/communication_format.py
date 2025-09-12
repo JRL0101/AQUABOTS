@@ -119,3 +119,75 @@ def utc_to_arizona_time(hour, minute, second):
 
     # Format the time in a 12-hour format with AM/PM
     return arizona_time.strftime('%I:%M:%S %p')
+
+
+# ---------------------------------------------------------------------------
+# Inter-drone communication messages
+# ---------------------------------------------------------------------------
+
+
+class InterDroneMessageType(Enum):
+    """Types of messages exchanged directly between drones."""
+
+    PositionBroadcast = 0
+    CollisionAlert = 1
+
+
+# Struct formats for inter-drone messages
+POSITION_BROADCAST_STRUCT = "<Idddf"  # id, lat, lon, heading, speed
+COLLISION_ALERT_STRUCT = "<IIff"  # id, other_id, distance, bearing
+
+
+class PositionBroadcast:
+    """Broadcast of a drone's position for swarm coordination."""
+
+    def __init__(self, drone_id, latitude, longitude, heading, speed):
+        self.drone_id = drone_id
+        self.latitude = latitude
+        self.longitude = longitude
+        self.heading = heading
+        self.speed = speed
+
+    def to_bytes(self):
+        return struct.pack(
+            POSITION_BROADCAST_STRUCT,
+            self.drone_id,
+            self.latitude,
+            self.longitude,
+            self.heading,
+            self.speed,
+        )
+
+    @classmethod
+    def from_bytes(cls, data):
+        drone_id, lat, lon, heading, speed = struct.unpack(
+            POSITION_BROADCAST_STRUCT, data
+        )
+        return cls(drone_id, lat, lon, heading, speed)
+
+
+class CollisionAlert:
+    """Alert message when two drones are within unsafe proximity."""
+
+    def __init__(self, drone_id, other_id, distance, bearing):
+        self.drone_id = drone_id
+        self.other_id = other_id
+        self.distance = distance
+        self.bearing = bearing
+
+    def to_bytes(self):
+        return struct.pack(
+            COLLISION_ALERT_STRUCT,
+            self.drone_id,
+            self.other_id,
+            self.distance,
+            self.bearing,
+        )
+
+    @classmethod
+    def from_bytes(cls, data):
+        drone_id, other_id, distance, bearing = struct.unpack(
+            COLLISION_ALERT_STRUCT, data
+        )
+        return cls(drone_id, other_id, distance, bearing)
+
