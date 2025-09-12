@@ -5,18 +5,16 @@ import os
 import json
 from threading import Thread, Event
 
+from w1thermsensor import W1ThermSensor, SensorNotReadyError
+from smbus2 import SMBus
+import serial
+import pynmea2
+
 # MQTT Configuration
 BROKER = "broker.emqx.io"
 PORT = 1883
 TOPIC_TO_LAPTOP = "raspberry/pi_to_laptop"
 TOPIC_FROM_LAPTOP = "raspberry/laptop_to_pi"
-
-# Paths to compiled C++ programs
-TEMP_PROGRAM = "./temperature"
-IMU_PROGRAM = "./imu_test_6050"
-GPS_PROGRAM = "./GPS_test"
-MotorOn = "./Bmotor_testOn"
-MotorOff = "./Bmotor_testOff"
 
 # Error codes
 TEMP_ERROR = 12345678
@@ -34,7 +32,30 @@ class SensorHub:
         self.mqtt_client.on_message = self.on_mqtt_message
         self.mqtt_client.connect(BROKER, PORT, 60)
         self.mqtt_client.loop_start()
-        
+
+        # Initialize sensors
+        try:
+            self.temperature_sensor = W1ThermSensor()
+        except Exception as e:
+            print(f"Temperature sensor init error: {e}")
+            self.temperature_sensor = None
+
+        try:
+            self.bus = SMBus(1)
+            self.mpu_addr = 0x68
+            # Wake MPU6050
+            self.bus.write_byte_data(self.mpu_addr, 0x6B, 0)
+        except Exception as e:
+            print(f"IMU init error: {e}")
+            self.bus = None
+            self.mpu_addr = None
+
+        try:
+            self.gps_serial = serial.Serial('/dev/ttyUSB0', baudrate=9600, timeout=1)
+        except Exception as e:
+            print(f"GPS init error: {e}")
+            self.gps_serial = None
+
         # Start sensor threads
         Thread(target=self.read_temperature, daemon=True).start()
         Thread(target=self.read_imu, daemon=True).start()
@@ -61,117 +82,90 @@ class SensorHub:
     
     def read_temperature(self):
         while not self.stop_event.is_set():
-            try:
-                result = subprocess.run([TEMP_PROGRAM], capture_output=True, text=True, timeout=5)
-                temp = None
-                
-                for line in result.stdout.split('\n'):
-                    if "Temperature:" in line:
-                        temp = float(line.split()[1].replace('°C', ''))
-                        break
-                
-                self.send_data("temperature", temp if temp is not None else TEMP_ERROR)
-                
-            except Exception as e:
-                print(f"Temperature error: {str(e)}")
-                self.send_data("temperature", TEMP_ERROR)
-            
+            temp = TEMP_ERROR
+            if self.temperature_sensor is not None:
+                try:
+                    temp = self.temperature_sensor.get_temperature()
+                except SensorNotReadyError:
+                    temp = TEMP_ERROR
+                except Exception as e:
+                    print(f"Temperature error: {str(e)}")
+                    temp = TEMP_ERROR
+
+            self.send_data("temperature", temp)
             time.sleep(5)
     
+    def _read_word(self, reg):
+        high = self.bus.read_byte_data(self.mpu_addr, reg)
+        low = self.bus.read_byte_data(self.mpu_addr, reg + 1)
+        value = (high << 8) | low
+        if value > 32767:
+            value -= 65536
+        return value
+
     def read_imu(self):
         while not self.stop_event.is_set():
-            try:
-                # Run with timeout shorter than your GUI update interval
-                result = subprocess.run([IMU_PROGRAM], capture_output=True, text=True, timeout=1.0)
-            
-                # Process all output lines
-                for line in result.stdout.splitlines():
-                    line = line.strip()
-                    if line.startswith('{') and line.endswith('}'):
-                        try:
-                            data = json.loads(line)
-                        
-                            # More careful error checking
-                            if not any(v == 23456789 or abs(v) > 1000 
-                                    for v in [data.get('accel_x'), 
-                                          data.get('accel_y'),
-                                          data.get('accel_z'),
-                                          data.get('gyro_x'),
-                                          data.get('gyro_y'),
-                                          data.get('gyro_z')]):
-                            
-                                # Only send if all values look reasonable
-                                self.send_data("imu", data)
-                                break
-                            
-                        except (json.JSONDecodeError, TypeError):
-                            continue
-            
-                # If no valid data found in output
-                else:
+            if self.bus is not None:
+                try:
+                    accel_x = self._read_word(0x3B) / 16384.0
+                    accel_y = self._read_word(0x3D) / 16384.0
+                    accel_z = self._read_word(0x3F) / 16384.0
+                    gyro_x = self._read_word(0x43) / 131.0
+                    gyro_y = self._read_word(0x45) / 131.0
+                    gyro_z = self._read_word(0x47) / 131.0
+                    data = {
+                        "accel_x": accel_x,
+                        "accel_y": accel_y,
+                        "accel_z": accel_z,
+                        "gyro_x": gyro_x,
+                        "gyro_y": gyro_y,
+                        "gyro_z": gyro_z,
+                    }
+                    self.send_data("imu", data)
+                except Exception as e:
+                    print(f"IMU communication error: {str(e)}")
                     self.send_data("imu", {
-                        "accel_x": 23456789,
-                        "accel_y": 23456789,
-                        "accel_z": 23456789,
-                        "gyro_x": 23456789,
-                        "gyro_y": 23456789,
-                        "gyro_z": 23456789
+                        "accel_x": IMU_ERROR,
+                        "accel_y": IMU_ERROR,
+                        "accel_z": IMU_ERROR,
+                        "gyro_x": IMU_ERROR,
+                        "gyro_y": IMU_ERROR,
+                        "gyro_z": IMU_ERROR,
                     })
-                
-            except subprocess.TimeoutExpired:
+            else:
                 self.send_data("imu", {
-                    "accel_x": 23456789,
-                    "accel_y": 23456789,
-                    "accel_z": 23456789,
-                    "gyro_x": 23456789,
-                    "gyro_y": 23456789,
-                    "gyro_z": 23456789
+                    "accel_x": IMU_ERROR,
+                    "accel_y": IMU_ERROR,
+                    "accel_z": IMU_ERROR,
+                    "gyro_x": IMU_ERROR,
+                    "gyro_y": IMU_ERROR,
+                    "gyro_z": IMU_ERROR,
                 })
-            
-            except Exception as e:
-                print(f"IMU communication error: {str(e)}")
-                self.send_data("imu", {
-                    "accel_x": 23456789,
-                    "accel_y": 23456789,
-                    "accel_z": 23456789,
-                    "gyro_x": 23456789,
-                    "gyro_y": 23456789,
-                    "gyro_z": 23456789
-                })
-        
-            time.sleep(0.1)  # Match this with your GUI update rate
+
+            time.sleep(0.1)
 
     
     def read_gps(self):
         while not self.stop_event.is_set():
-            try:
-                result = subprocess.run([GPS_PROGRAM], capture_output=True, text=True, timeout=10)
-                gps_data = None
-            
-                # Check stdout for JSON data
-                for line in result.stdout.split('\n'):
-                    if line.startswith('{') and line.endswith('}'):
-                        try:
-                            data = json.loads(line)
-                            if all(key in data for key in ['lat', 'lon', 'altitude']):
-                                gps_data = {
-                                    "lat": data['lat'],
-                                    "lon": data['lon'],
-                                    "altitude": data['altitude']
-                                }
-                                break
-                        except json.JSONDecodeError:
-                            continue
-            
-                self.send_data("gps", gps_data if gps_data else GPS_ERROR)
-            
-            except subprocess.TimeoutExpired:
-                # Program is running continuously, timeout is expected
-                continue
-            except Exception as e:
-                print(f"GPS error: {str(e)}")
+            if self.gps_serial is not None:
+                try:
+                    line = self.gps_serial.readline().decode('ascii', errors='replace')
+                    if line.startswith('$GPGGA'):
+                        msg = pynmea2.parse(line)
+                        gps_data = {
+                            "lat": msg.latitude,
+                            "lon": msg.longitude,
+                            "altitude": getattr(msg, 'altitude', 0.0),
+                        }
+                        self.send_data("gps", gps_data)
+                    else:
+                        self.send_data("gps", GPS_ERROR)
+                except Exception as e:
+                    print(f"GPS error: {str(e)}")
+                    self.send_data("gps", GPS_ERROR)
+            else:
                 self.send_data("gps", GPS_ERROR)
-        
+
             time.sleep(1)
 
     
@@ -186,48 +180,24 @@ class SensorHub:
     def stop(self):
         """Proper shutdown sequence"""
         print("Initiating shutdown...")
-        
+
         # Signal threads to stop
         self.stop_event.set()
-        
+
         # Clean up MQTT
         self.mqtt_client.loop_stop()
         self.mqtt_client.disconnect()
-        
+
+        # Close hardware interfaces
+        if hasattr(self, 'bus') and self.bus is not None:
+            self.bus.close()
+        if hasattr(self, 'gps_serial') and self.gps_serial is not None and self.gps_serial.is_open:
+            self.gps_serial.close()
+
         # Force exit
         os._exit(0)
 
 if __name__ == "__main__":
-    # Compile programs if needed
-    if not os.path.exists(IMU_PROGRAM):
-        print("Compiling IMU code...")
-        os.system("g++ imu_test_6050.cpp -o imu_test_6050 -lwiringPi")
-    
-    if not os.path.exists(GPS_PROGRAM):
-        print("Compiling GPS code...")
-        os.system("g++ GPS_test.cpp -o GPS_test -lwiringPi")
-    
-    if not os.path.exists(TEMP_PROGRAM):
-        print("Compiling temperature code...")
-        os.system("g++ temperature.cpp -o temperature")
-    
-    # Verify programs exist
-    required_programs = {
-        "IMU": IMU_PROGRAM,
-        "GPS": GPS_PROGRAM,
-        "Temperature": TEMP_PROGRAM
-    }
-    
-    missing = [name for name, path in required_programs.items() if not os.path.exists(path)]
-    if missing:
-        print(f"Error: Missing compiled programs for {', '.join(missing)}")
-        exit(1)
-    
-    # Set executable permissions
-    for program in required_programs.values():
-        os.chmod(program, 0o755)
-    
-    # Run sensor hub
     try:
         hub = SensorHub()
         print("Sensor hub running. Press Ctrl+C to stop.")
