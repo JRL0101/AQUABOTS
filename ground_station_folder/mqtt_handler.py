@@ -1,5 +1,7 @@
 import paho.mqtt.client as mqtt
 import json
+import os
+import time
 from datetime import datetime
 
 class MQTTHandler:
@@ -7,15 +9,22 @@ class MQTTHandler:
         self.client = mqtt.Client()
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
-        
+        self.client.on_disconnect = self.on_disconnect
+
+        # Load configuration
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'mqtt_config.json')
+        with open(config_path) as f:
+            config = json.load(f)
+
         # Connection details
-        self.broker = "broker.emqx.io"
-        self.port = 1883
-        
+        self.broker = config.get("broker", "localhost")
+        self.port = config.get("port", 1883)
+
         # Topics
-        self.topic_from_pi = "raspberry/pi_to_laptop"
-        self.topic_to_pi = "raspberry/laptop_to_pi"
-        self.status_topic = "raspberry/status"
+        topics = config.get("topics", {})
+        self.topic_from_pi = topics.get("pi_to_laptop", "pi/to/laptop")
+        self.topic_to_pi = topics.get("laptop_to_pi", "laptop/to/pi")
+        self.status_topic = topics.get("status", "status")
         
         # Error codes
         self.TEMP_ERROR = 12345678
@@ -35,10 +44,31 @@ class MQTTHandler:
         self.map_update_callback = None
     
     def connect(self):
-        """Connect to the MQTT broker"""
+        """Connect to the MQTT broker with automatic reconnect"""
         self.client.will_set(self.status_topic, "offline", retain=True)
-        self.client.connect(self.broker, self.port)
-        self.client.loop_start()
+
+        delay = 1
+        while True:
+            try:
+                self.client.connect(self.broker, self.port)
+                self.client.loop_start()
+                break
+            except Exception as e:
+                print(f"MQTT connection failed: {e}. Retrying in {delay}s")
+                time.sleep(delay)
+                delay = min(delay * 2, 60)
+
+    def on_disconnect(self, client, userdata, rc):
+        if rc != 0:
+            delay = 1
+            while True:
+                try:
+                    time.sleep(delay)
+                    client.reconnect()
+                    break
+                except Exception as e:
+                    print(f"MQTT reconnect failed: {e}. Retrying in {delay}s")
+                    delay = min(delay * 2, 60)
     
     def on_connect(self, client, userdata, flags, rc):
         """Connection callback"""
