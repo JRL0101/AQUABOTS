@@ -2,13 +2,18 @@ import paho.mqtt.client as mqtt
 import json
 import subprocess
 import threading
+import os
 from time import sleep
 
-# MQTT Configuration
-BROKER = "broker.emqx.io"
-PORT = 1883
-TOPIC_FROM_LAPTOP = "raspberry/laptop_to_pi"
-TOPIC_TO_LAPTOP = "raspberry/pi_to_laptop"
+# Load MQTT configuration
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'mqtt_config.json')
+with open(CONFIG_PATH) as f:
+    _config = json.load(f)
+
+BROKER = _config.get("broker", "localhost")
+PORT = _config.get("port", 1883)
+TOPIC_FROM_LAPTOP = _config.get("topics", {}).get("laptop_to_pi", "laptop/to/pi")
+TOPIC_TO_LAPTOP = _config.get("topics", {}).get("pi_to_laptop", "pi/to/laptop")
 
 # Navigation program
 NAVIGATION_PROGRAM = "./GNC_Code"
@@ -25,7 +30,8 @@ class NavigationController:
         self.mqtt_client = mqtt.Client()
         self.mqtt_client.on_connect = self.on_mqtt_connect
         self.mqtt_client.on_message = self.on_mqtt_message
-        self.mqtt_client.connect(BROKER, PORT, 60)
+        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
+        self.connect_with_backoff()
         self.mqtt_client.loop_start()
         
         self.thread = threading.Thread(target=self.run_state_machine, daemon=True)
@@ -73,6 +79,29 @@ class NavigationController:
                 
         except Exception as e:
             print(f"Error processing MQTT message: {e}")
+
+    def connect_with_backoff(self):
+        delay = 1
+        while True:
+            try:
+                self.mqtt_client.connect(BROKER, PORT, 60)
+                break
+            except Exception as e:
+                print(f"MQTT connection failed: {e}. Retrying in {delay}s")
+                sleep(delay)
+                delay = min(delay * 2, 60)
+
+    def on_mqtt_disconnect(self, client, userdata, rc):
+        if rc != 0:
+            delay = 1
+            while True:
+                try:
+                    sleep(delay)
+                    client.reconnect()
+                    break
+                except Exception as e:
+                    print(f"MQTT reconnect failed: {e}. Retrying in {delay}s")
+                    delay = min(delay * 2, 60)
     
     def run_state_machine(self):
         while not self.stop_event.is_set():

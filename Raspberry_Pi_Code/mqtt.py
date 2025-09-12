@@ -1,13 +1,19 @@
 import paho.mqtt.client as mqtt
 import time
+import json
+import os
 
-# Define the MQTT settings
-broker = "broker.emqx.io"
-port = 1883
+# Load MQTT settings from config
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'mqtt_config.json')
+with open(CONFIG_PATH) as f:
+    _config = json.load(f)
+
+broker = _config.get("broker", "localhost")
+port = _config.get("port", 1883)
 
 # Topics - now matching both directions
-topic_from_laptop = "raspberry/laptop_to_pi"
-topic_to_laptop = "raspberry/pi_to_laptop"
+topic_from_laptop = _config.get("topics", {}).get("laptop_to_pi", "laptop/to/pi")
+topic_to_laptop = _config.get("topics", {}).get("pi_to_laptop", "pi/to/laptop")
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected with result code {rc}")
@@ -24,8 +30,33 @@ client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-# Connect to the broker
-client.connect(broker, port, 60)
+def connect_with_backoff():
+    delay = 1
+    while True:
+        try:
+            client.connect(broker, port, 60)
+            break
+        except Exception as e:
+            print(f"MQTT connection failed: {e}. Retrying in {delay}s")
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+def on_disconnect(client, userdata, rc):
+    if rc != 0:
+        delay = 1
+        while True:
+            try:
+                time.sleep(delay)
+                client.reconnect()
+                break
+            except Exception as e:
+                print(f"MQTT reconnect failed: {e}. Retrying in {delay}s")
+                delay = min(delay * 2, 60)
+
+client.on_disconnect = on_disconnect
+
+# Connect to the broker with backoff
+connect_with_backoff()
 
 # Start the loop to listen for messages
 client.loop_start()
