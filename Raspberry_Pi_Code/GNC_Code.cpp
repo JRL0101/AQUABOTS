@@ -49,6 +49,7 @@ using namespace std;
 // PI Controller ------
 #include "PIcontrol.h"
 // --------------------
+#include "sensor_fusion.h"
 
 
 #define _CRT_SECURE_NO_WARNINGS
@@ -81,120 +82,6 @@ using namespace std;
 //
 // ASSUMPTION: The model is WGS84, Latitude is customary geodetic (not geocentric), input and output elements are scalars in a vector
 
-void LLA2ECEF(double LLA[3], double ECEF[3]) {
-
-    // WGS84 ellipsoid constants
-    int a = 6378137;
-    double e = 8.1819190842622e-2;
-
-    // declaring each element of the input array for clarity
-
-    double lat = LLA[0]; // latitude
-    double lon = LLA[1]; // longitude
-    double alt = LLA[2]; // altitude
-
-    // intermediate calculation
-    // (prime vertical radius of curvature)
-    double N = a / sqrt(1 - pow(e, 2) * pow(sin(lat), 2));
-
-    // return results
-
-    ECEF[0] = (N + alt) * cos(lat) * cos(lon);        // X
-    ECEF[1] = (N + alt) * cos(lat) * sin(lon);        // Y
-    ECEF[2] = ((1 - pow(e, 2)) * N + alt) * sin(lat); // Z
-}
-
-// ECEF2LLA function - convert earth-center, earth-fixed (ECEF) cartesian to latitude,longitude, and altitude
-// Input:
-// ECEF2LLA(input[x,y,z],output[lat,lon,alt])
-//
-// lat = geodetic latitude (radians)
-// lon = longtiude (radians)
-// alt = height above WGS84 ellipsoid (m)
-// x = ECEF X-coordinate (m)
-// y = ECEF Y-coordinate (m)
-// z = ECEF Z-coordinate (m)
-//
-// ASSUMPTION: The model is WGS84, Latitude is customary geodetic (not geocentric), not correcting for numerical instability
-// in altitude near exact poles, input and output elements are scalars in a vector
-
-void ECEF2LLA(double ECEF[3], double LLA[3]) {
-
-    // WGS84 ellipsoid constants
-    int a = 6378137;
-    double e = 8.1819190842622e-2;
-
-    // declaring each element of the input for clarity
-
-    double x = ECEF[0];
-    double y = ECEF[1];
-    double z = ECEF[2];
-
-    // Calculations
-
-    double b = sqrt(pow(a, 2) * (1 - pow(e, 2)));
-    double ep = sqrt((pow(a, 2) - pow(b, 2)) / pow(b, 2));
-    double p = sqrt(pow(x, 2) + pow(y, 2));
-    double th = atan2(a * z, b * p);
-    double lon = atan2(y, x);
-    double lat = atan2((z + pow(ep, 2) * b * pow(sin(th), 3)), (p - pow(e, 2) * a * pow(cos(th), 3)));
-    double N = a / sqrt(1 - pow(e, 2) * pow(sin(lat), 2));
-    double alt = p / cos(lat) - N;
-
-    // return lon in range [0,2*PI]
-    lon = fmod(lon, 2 * PI);
-
-    //if (lon < 0) {
-        //lon += 2 * PI;  // Ensure that lon is in the range [0, 2*pi)
-    //}
-
-    // declaring each element of the output array for return
-
-    LLA[0] = lat; // latitude
-    LLA[1] = lon; // longitude
-    LLA[2] = alt; // altitude
-}
-
-// QInverse function - Form the conjugate of Quaternion Vector.
-// 
-// If Quaternion Vector is a Unit Quaternion then the Conjugate is the 
-// Inverse Quarternion Vector such that QVector * Conjugate QVector equals
-// the Identity Quaternion Vector.
-// Input:  QVector[4]
-// Output: QVectorInverse[4]
-
-void QInverse(double QVector[4], double QVectorInverse[4]) {
-    QVectorInverse[0] = QVector[0];
-    QVectorInverse[1] = -QVector[1];
-    QVectorInverse[2] = -QVector[2];
-    QVectorInverse[3] = -QVector[3];
-}
-
-// QNormalize function - Quaternion Normalization function
-//
-// Input:  QVector[4]
-// Output: QNormVecotr[4]
-
-void QNormalize(double QVector[4], double QNormVector[4]) {
-    double Qzero = QVector[0];
-    double Qone = QVector[1];
-    double Qtwo = QVector[2];
-    double Qthree = QVector[3];
-
-    double QNorm = sqrt(pow(Qzero, 2) + pow(Qone, 2) + pow(Qtwo, 2) + pow(Qthree, 2));
-    if (QNorm > 0.0) {
-        QNormVector[0] = Qzero / QNorm;
-        QNormVector[1] = Qone / QNorm;
-        QNormVector[2] = Qtwo / QNorm;
-        QNormVector[3] = Qthree / QNorm;
-    }
-    else {
-        QNormVector[0] = QVector[0];
-        QNormVector[1] = QVector[1];
-        QNormVector[2] = QVector[2];
-        QNormVector[3] = QVector[3];
-    }
-}
 
 // QNormChk function - Quaternion Normalization Check
 //
