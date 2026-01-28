@@ -1,0 +1,155 @@
+/* === GENERAL PAGE STYLING === */
+body {
+    background-color: #121212;
+    color: white;
+    font-family: 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+/* === HEADER === */
+.header {
+    background-color: #9E1B32; /* Deeper Arizona Red */
+    color: white;
+    text-align: center;
+    padding: 20px 0;
+    border-bottom: 4px solid #0E025C; /* Arizona Blue outline */
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 2em;
+    font-weight: bold;
+}
+
+.header p {
+    margin: 5px 0 0;
+    font-size: 1em;
+}
+
+/* === CONTAINER === */
+.container {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin: 40px;
+}
+
+/* === COLUMN SETUP === */
+.panel-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 40%;
+}
+
+/* === PANEL TITLES === */
+.panel-title {
+    color: white;
+    font-size: 1.4em;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+/* === BOXES === */
+.panel {
+    background-color: #1e1e1e;
+    border: 3px solid #0E025C;
+    border-radius: 10px;
+    padding: 20px;
+    width: 100%;
+    height: 300px;
+    text-align: center;
+}
+
+.video-panel {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* === VIDEO === */
+.video-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover; 
+    border-radius: 10px;
+}
+
+/* === BUTTONS === */
+button {
+    background-color: #9E1B32;
+    border: 2px solid #0E025C;
+    border-radius: 6px;
+    color: white;
+    padding: 10px 16px;
+    margin: 8px 0;
+    font-size: 14px;
+    cursor: pointer;
+    width: 150px;
+}
+button:hover {  
+    background-color: #B63642;
+}
+
+/* === SENSOR + BANDWIDTH === */
+.sensor-data, .bandwidth-panel {
+    background-color: #1e1e1e;
+    border: 2px solid #0E025C;
+    border-radius: 8px;
+    padding: 10px 15px;
+    width: 90%;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.sensor-data h3, .bandwidth-panel h3 {
+    text-align: center;
+    color: white; 
+}
+
+/* === BOTTOM ROW LAYOUT === */
+.bottom-row {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;  
+    gap: 40px;
+    margin: 40px auto;
+    width: 90%;
+}
+
+.bottom-row > div {
+    background-color: #1e1e1e;
+    border: 2px solid #0E025C;
+    border-radius: 8px;
+    padding: 20px;  
+    text-align: center;
+    flex: 1;
+}
+
+.buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+#webrtcVideo {
+    background-color: #000 !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+}
+
+.video-stats {
+    margin-top: 15px;
+    text-align: center;
+    color: #d1d1d1;
+    font-size: 1.1rem;
+}
+.video-stats p {
+    margin: 5px 0;
+}
