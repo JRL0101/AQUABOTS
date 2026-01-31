@@ -1,0 +1,10 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "clangd.path": "C:\\Users\\johnr\\.espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=c:\\Users\\johnr\\OneDrive - University of Arizona\\UA\\Spring 26\\AQUABOTS\\Swarm\\Communications System\\build"
+  ],
+  "idf.portWin": "COM3"
+}
