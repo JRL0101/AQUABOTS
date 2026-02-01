@@ -1,0 +1,12 @@
+menu "Swarm Configuration"
+
+    config DEFAULT_NODE_ID
+        int "Default Node ID (if not provisioned in NVS)"
+        range 0 65535
+        default 65535
+        help
+            Default node ID to use if not provisioned via NVS.
+            Set to 65535 (0xFFFF) to require explicit provisioning.
+            Valid node IDs for operation: 1-254.
+
+endmenu
