@@ -110,7 +110,7 @@ void app_main(void)
     
     // Start serial console for provisioning
     node_config_start_console();
-    
+    //asdf
     // ========================================================================
     // STEP 2 DEMO MODE: Use node_id to determine behavior
     // ========================================================================
