@@ -2,13 +2,14 @@
  * main.c
  * 
  * ESP32 Swarm Framework - Main Entry Point
- * Step 2: NVS-based node identity, serial provisioning
+ * Step 3: HELLO/JOIN membership discovery, auto-discovery
  */
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_console.h"
 
 // Node configuration
 #include "node_config.h"
@@ -26,33 +27,44 @@
 static const char *TAG = "MAIN";
 
 // ============================================================================
-// STEP 2 DEMO: Use node_id to determine behavior
+// MEMBERSHIP CALLBACKS
 // ============================================================================
 
-// Known peer MACs for demo mode (Step 2 only - will be replaced with discovery in Step 3)
-// Map node_id to MAC address
-typedef struct {
-    uint16_t node_id;
-    uint8_t mac[6];
-} node_mac_map_t;
-
-static const node_mac_map_t KNOWN_NODES[] = {
-    {1, {0x6c, 0xc8, 0x40, 0x89, 0x71, 0x64}},  // Node 1: Board A
-    {2, {0x78, 0x1c, 0x3c, 0xf1, 0x5e, 0x74}},  // Node 2: Board B
-    // Add more nodes here as needed
-};
-
-#define KNOWN_NODES_COUNT (sizeof(KNOWN_NODES) / sizeof(KNOWN_NODES[0]))
-
-// Find MAC address for a given node_id
-static const uint8_t *find_mac_by_node_id(uint16_t node_id)
+static void on_member_joined(const member_info_t *member)
 {
-    for (int i = 0; i < KNOWN_NODES_COUNT; i++) {
-        if (KNOWN_NODES[i].node_id == node_id) {
-            return KNOWN_NODES[i].mac;
-        }
-    }
-    return NULL;
+    ESP_LOGI(TAG, "*** NEW MEMBER DISCOVERED ***");
+    ESP_LOGI(TAG, "    Node ID: %u", member->node_id);
+    ESP_LOGI(TAG, "    MAC: %02x:%02x:%02x:%02x:%02x:%02x",
+             member->mac[0], member->mac[1], member->mac[2],
+             member->mac[3], member->mac[4], member->mac[5]);
+    ESP_LOGI(TAG, "    RSSI: %d dBm", member->last_rssi);
+}
+
+static void on_member_lost(const member_info_t *member)
+{
+    ESP_LOGW(TAG, "*** MEMBER LOST (TIMEOUT) ***");
+    ESP_LOGW(TAG, "    Node ID: %u", member->node_id);
+}
+
+// ============================================================================
+// CONSOLE COMMANDS (Step 3 additions)
+// ============================================================================
+
+static int cmd_members(int argc, char **argv)
+{
+    membership_print_table();
+    return 0;
+}
+
+static void register_console_commands(void)
+{
+    const esp_console_cmd_t members_cmd = {
+        .command = "members",
+        .help = "Show member table",
+        .hint = NULL,
+        .func = &cmd_members,
+    };
+    esp_console_cmd_register(&members_cmd);
 }
 
 // ============================================================================
@@ -62,7 +74,7 @@ static const uint8_t *find_mac_by_node_id(uint16_t node_id)
 void app_main(void)
 {
     ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, "ESP32 Swarm Framework - Step 2");
+    ESP_LOGI(TAG, "ESP32 Swarm Framework");
     ESP_LOGI(TAG, "==============================================");
     
     // Initialize NVS
@@ -95,14 +107,14 @@ void app_main(void)
     // Initialize transport layer
     swarm_transport_init();
     
-    // Initialize all swarm modules (stubs for Step 2)
+    // Initialize all swarm modules
     membership_init();
     leader_election_init();
     scheduler_init();
     command_engine_init();
     formation_init();
     
-    // Initialize obstacle/avoidance modules (stubs for Step 2)
+    // Initialize obstacle/avoidance modules
     obstacle_sense_init();
     avoidance_init();
     
@@ -110,9 +122,12 @@ void app_main(void)
     
     // Start serial console for provisioning
     node_config_start_console();
-    //asdf
+    
+    // Register additional console commands
+    register_console_commands();
+    
     // ========================================================================
-    // STEP 2 DEMO MODE: Use node_id to determine behavior
+    // STEP 3: Start membership discovery if provisioned
     // ========================================================================
     
     if (!node_config_is_provisioned()) {
@@ -120,30 +135,21 @@ void app_main(void)
         ESP_LOGW(TAG, "Entering console mode only.");
         ESP_LOGW(TAG, "Use 'set_node_id <id>' to provision, then restart.");
         ESP_LOGI(TAG, "Available commands: help, info, get_node_id, set_node_id");
-        // Console is running, just return
         return;
     }
     
-    // Provisioned - determine demo role based on node_id
-    if (my_node_id == 1) {
-        // Node 1: Act as initiator, send to Node 2
-        ESP_LOGI(TAG, "=== NODE %u: INITIATOR MODE ===", my_node_id);
-        ESP_LOGI(TAG, "Will send PINGs to Node 2 every 1 second");
-        
-        const uint8_t *peer_mac = find_mac_by_node_id(2);
-        if (peer_mac) {
-            swarm_transport_start_demo_pingack(1, peer_mac);
-        } else {
-            ESP_LOGE(TAG, "ERROR: Node 2 MAC not found in KNOWN_NODES");
-        }
-        
-    } else {
-        // Other nodes: Act as responders
-        ESP_LOGI(TAG, "=== NODE %u: RESPONDER MODE ===", my_node_id);
-        ESP_LOGI(TAG, "Waiting for PINGs and will respond with ACKs");
-        swarm_transport_start_demo_pingack(0, NULL);
-    }
+    // Register membership callbacks
+    membership_register_joined_cb(on_member_joined);
+    membership_register_lost_cb(on_member_lost);
     
-    ESP_LOGI(TAG, "System running. Demo ping/ack active.");
-    ESP_LOGI(TAG, "Console available - type 'help' for commands.");
+    // Start membership discovery
+    ESP_LOGI(TAG, "=== STARTING SWARM MEMBERSHIP DISCOVERY ===");
+    ESP_LOGI(TAG, "Node will broadcast HELLO every 2 seconds");
+    ESP_LOGI(TAG, "Auto-discovering peers...");
+    
+    membership_start();
+    
+    ESP_LOGI(TAG, "System running. Membership discovery active.");
+    ESP_LOGI(TAG, "Console commands: help, info, members");
+    ESP_LOGI(TAG, "Type 'members' to see discovered nodes.");
 }

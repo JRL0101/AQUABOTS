@@ -1,5 +1,5 @@
 # CMakeLists.txt for main component
-# Step 2: Added node_config module
+# Step 3: Updated membership module (no longer stub)
 
 idf_component_register(
     SRCS 
