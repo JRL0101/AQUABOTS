@@ -2,7 +2,7 @@
  * main.c
  * 
  * ESP32 Swarm Framework - Main Entry Point
- * Step 3: HELLO/JOIN membership discovery, auto-discovery
+ * HELLO/JOIN membership discovery, auto-discovery
  */
 
 #include "freertos/FreeRTOS.h"
@@ -47,7 +47,7 @@ static void on_member_lost(const member_info_t *member)
 }
 
 // ============================================================================
-// CONSOLE COMMANDS (Step 3 additions)
+// CONSOLE COMMANDS 
 // ============================================================================
 
 static int cmd_members(int argc, char **argv)
@@ -127,7 +127,7 @@ void app_main(void)
     register_console_commands();
     
     // ========================================================================
-    // STEP 3: Start membership discovery if provisioned
+    //  Start membership discovery if provisioned
     // ========================================================================
     
     if (!node_config_is_provisioned()) {
