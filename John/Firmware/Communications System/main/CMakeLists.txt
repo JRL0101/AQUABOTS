@@ -1,5 +1,5 @@
 # CMakeLists.txt for main component
-# Step 4: Leader election + TDMA beacon (no longer stub)
+# Step 5: Command engine (no longer stub)
 
 idf_component_register(
     SRCS 

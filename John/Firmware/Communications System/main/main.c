@@ -2,7 +2,7 @@
  * main.c
  * 
  * ESP32 Swarm Framework - Main Entry Point
- * Step 4: Leader election + TDMA beacon scheduling
+ * Step 5: Command engine with GOTO, HOLD, STOP, RESUME
  */
 
 #include "freertos/FreeRTOS.h"
@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_console.h"
+#include <stdlib.h>
 
 // Node configuration
 #include "node_config.h"
@@ -73,6 +74,32 @@ static void on_schedule_updated(const tdma_slot_t *schedule, int num_slots)
     } else {
         ESP_LOGW(TAG, "    My slot: NOT ASSIGNED");
     }
+}
+
+// ============================================================================
+// COMMAND ENGINE CALLBACKS
+// ============================================================================
+
+static bool on_command_received(const swarm_command_t *command)
+{
+    ESP_LOGI(TAG, "*** COMMAND RECEIVED ***");
+    ESP_LOGI(TAG, "    Type: %s", command_engine_get_type_name(command->cmd_type));
+    ESP_LOGI(TAG, "    ID: %lu", (unsigned long)command->cmd_id);
+    ESP_LOGI(TAG, "    Target: %u", command->target_node);
+    
+    if (command->cmd_type == CMD_GOTO) {
+        ESP_LOGI(TAG, "    Waypoint: (%ld, %ld)", (long)command->param1, (long)command->param2);
+        ESP_LOGI(TAG, "    Heading: %ld", (long)command->param3);
+    }
+    
+    return true;  // Accept all commands
+}
+
+static void on_command_status(const swarm_command_t *command, command_status_t status)
+{
+    ESP_LOGI(TAG, "*** COMMAND STATUS CHANGE ***");
+    ESP_LOGI(TAG, "    Command: %s", command_engine_get_type_name(command->cmd_type));
+    ESP_LOGI(TAG, "    Status: %s", command_engine_get_status_name(status));
 }
 
 // ============================================================================
@@ -150,6 +177,122 @@ static int cmd_schedule(int argc, char **argv)
     return 0;
 }
 
+static int cmd_goto(int argc, char **argv)
+{
+    if (argc < 3 || argc > 4) {
+        printf("Usage: goto <x> <y> [heading]\n");
+        printf("  x, y: Target position (in meters)\n");
+        printf("  heading: Target heading in degrees (optional, default 0)\n");
+        printf("\nExamples:\n");
+        printf("  goto 10 20        # Go to (10, 20), heading 0\n");
+        printf("  goto 10 20 90     # Go to (10, 20), heading 90°\n");
+        return 1;
+    }
+    
+    int32_t x = atoi(argv[1]);
+    int32_t y = atoi(argv[2]);
+    int32_t heading = (argc >= 4) ? atoi(argv[3]) : 0;
+    
+    printf("Sending GOTO command: (%ld, %ld), heading %ld°\n", 
+           (long)x, (long)y, (long)heading);
+    
+    esp_err_t err = command_engine_send_command(CMD_GOTO, 0, x, y, heading);
+    if (err == ESP_OK) {
+        printf("Command sent to swarm\n");
+    } else {
+        printf("Failed to send command: %s\n", esp_err_to_name(err));
+        if (err == ESP_ERR_INVALID_STATE) {
+            printf("(Only leader can send commands)\n");
+        }
+    }
+    
+    return 0;
+}
+
+static int cmd_hold(int argc, char **argv)
+{
+    printf("Sending HOLD command to swarm\n");
+    
+    esp_err_t err = command_engine_send_command(CMD_HOLD, 0, 0, 0, 0);
+    if (err == ESP_OK) {
+        printf("Command sent\n");
+    } else {
+        printf("Failed to send command: %s\n", esp_err_to_name(err));
+        if (err == ESP_ERR_INVALID_STATE) {
+            printf("(Only leader can send commands)\n");
+        }
+    }
+    
+    return 0;
+}
+
+static int cmd_stop(int argc, char **argv)
+{
+    printf("Sending STOP command to swarm\n");
+    
+    esp_err_t err = command_engine_send_command(CMD_STOP, 0, 0, 0, 0);
+    if (err == ESP_OK) {
+        printf("Command sent\n");
+    } else {
+        printf("Failed to send command: %s\n", esp_err_to_name(err));
+        if (err == ESP_ERR_INVALID_STATE) {
+            printf("(Only leader can send commands)\n");
+        }
+    }
+    
+    return 0;
+}
+
+static int cmd_resume(int argc, char **argv)
+{
+    printf("Sending RESUME command to swarm\n");
+    
+    esp_err_t err = command_engine_send_command(CMD_RESUME, 0, 0, 0, 0);
+    if (err == ESP_OK) {
+        printf("Command sent\n");
+    } else {
+        printf("Failed to send command: %s\n", esp_err_to_name(err));
+        if (err == ESP_ERR_INVALID_STATE) {
+            printf("(Only leader can send commands)\n");
+        }
+    }
+    
+    return 0;
+}
+
+static int cmd_status(int argc, char **argv)
+{
+    command_state_t state;
+    
+    printf("\n=== Command Status ===\n");
+    
+    if (!command_engine_get_state(&state)) {
+        printf("Status: IDLE (no active command)\n\n");
+        return 0;
+    }
+    
+    printf("Command: %s\n", command_engine_get_type_name(state.command.cmd_type));
+    printf("Status: %s\n", command_engine_get_status_name(state.status));
+    printf("Command ID: %lu\n", (unsigned long)state.command.cmd_id);
+    
+    if (state.command.cmd_type == CMD_GOTO) {
+        printf("Target: (%ld, %ld)\n", (long)state.command.param1, (long)state.command.param2);
+        printf("Heading: %ld°\n", (long)state.command.param3);
+    }
+    
+    uint32_t now = esp_log_timestamp();
+    uint32_t elapsed = now - state.start_time_ms;
+    printf("Elapsed time: %lu ms\n", (unsigned long)elapsed);
+    
+    if (state.completion_time_ms > 0) {
+        uint32_t duration = state.completion_time_ms - state.start_time_ms;
+        printf("Duration: %lu ms\n", (unsigned long)duration);
+    }
+    
+    printf("\n");
+    return 0;
+}
+
 static void register_console_commands(void)
 {
     const esp_console_cmd_t members_cmd = {
@@ -175,6 +318,46 @@ static void register_console_commands(void)
         .func = &cmd_schedule,
     };
     esp_console_cmd_register(&schedule_cmd);
+    
+    const esp_console_cmd_t goto_cmd = {
+        .command = "goto",
+        .help = "Send GOTO command (leader only)",
+        .hint = NULL,
+        .func = &cmd_goto,
+    };
+    esp_console_cmd_register(&goto_cmd);
+    
+    const esp_console_cmd_t hold_cmd = {
+        .command = "hold",
+        .help = "Send HOLD command (leader only)",
+        .hint = NULL,
+        .func = &cmd_hold,
+    };
+    esp_console_cmd_register(&hold_cmd);
+    
+    const esp_console_cmd_t stop_cmd = {
+        .command = "stop",
+        .help = "Send STOP command (leader only)",
+        .hint = NULL,
+        .func = &cmd_stop,
+    };
+    esp_console_cmd_register(&stop_cmd);
+    
+    const esp_console_cmd_t resume_cmd = {
+        .command = "resume",
+        .help = "Send RESUME command (leader only)",
+        .hint = NULL,
+        .func = &cmd_resume,
+    };
+    esp_console_cmd_register(&resume_cmd);
+    
+    const esp_console_cmd_t status_cmd = {
+        .command = "status",
+        .help = "Show current command status",
+        .hint = NULL,
+        .func = &cmd_status,
+    };
+    esp_console_cmd_register(&status_cmd);
 }
 
 // ============================================================================
@@ -184,7 +367,7 @@ static void register_console_commands(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, "ESP32 Swarm Framework - Step 4");
+    ESP_LOGI(TAG, "ESP32 Swarm Framework - Step 5");
     ESP_LOGI(TAG, "==============================================");
     
     // Initialize NVS
@@ -248,16 +431,20 @@ void app_main(void)
     membership_register_lost_cb(on_member_lost);
     leader_election_register_leader_changed_cb(on_leader_changed);
     leader_election_register_schedule_updated_cb(on_schedule_updated);
+    command_engine_register_received_cb(on_command_received);
+    command_engine_register_status_cb(on_command_status);
     
-    // Start membership discovery
+    // Start swarm protocols
     ESP_LOGI(TAG, "=== STARTING SWARM PROTOCOLS ===");
     ESP_LOGI(TAG, "Membership discovery active");
     ESP_LOGI(TAG, "Leader election active");
     ESP_LOGI(TAG, "TDMA beacon scheduling active");
+    ESP_LOGI(TAG, "Command engine active");
     
     membership_start();
     leader_election_start();
+    command_engine_start();
     
     ESP_LOGI(TAG, "System running.");
-    ESP_LOGI(TAG, "Console commands: help, info, members, leader, schedule");
+    ESP_LOGI(TAG, "Console commands: help, info, members, leader, schedule, goto, hold, stop, resume, status");
 }
