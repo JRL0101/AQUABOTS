@@ -316,7 +316,7 @@ esp_err_t membership_start(void)
     xTaskCreate(hello_broadcast_task, "hello_bcast", 3072, NULL, 5, &hello_task_handle);
     
     // Start timeout check task
-    xTaskCreate(timeout_check_task, "timeout_chk", 2048, NULL, 4, &timeout_task_handle);
+    xTaskCreate(timeout_check_task, "timeout_chk", 4096, NULL, 4, &timeout_task_handle);
     
     ESP_LOGI(TAG, "Membership protocol started");
     return ESP_OK;

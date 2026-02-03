@@ -2,7 +2,7 @@
  * main.c
  * 
  * ESP32 Swarm Framework - Main Entry Point
- * HELLO/JOIN membership discovery, auto-discovery
+ * Step 4: Leader election + TDMA beacon scheduling
  */
 
 #include "freertos/FreeRTOS.h"
@@ -47,12 +47,106 @@ static void on_member_lost(const member_info_t *member)
 }
 
 // ============================================================================
-// CONSOLE COMMANDS 
+// LEADER ELECTION CALLBACKS
+// ============================================================================
+
+static void on_leader_changed(uint16_t new_leader_id, bool is_self)
+{
+    if (is_self) {
+        ESP_LOGI(TAG, "*** I AM NOW THE LEADER ***");
+        ESP_LOGI(TAG, "    Node ID: %u", new_leader_id);
+        ESP_LOGI(TAG, "    Generating TDMA schedule...");
+    } else {
+        ESP_LOGI(TAG, "*** NEW LEADER ELECTED ***");
+        ESP_LOGI(TAG, "    Leader Node ID: %u", new_leader_id);
+    }
+}
+
+static void on_schedule_updated(const tdma_slot_t *schedule, int num_slots)
+{
+    ESP_LOGI(TAG, "*** TDMA SCHEDULE UPDATED ***");
+    ESP_LOGI(TAG, "    Number of slots: %d", num_slots);
+    
+    int my_slot = leader_election_get_my_slot();
+    if (my_slot >= 0) {
+        ESP_LOGI(TAG, "    My slot: %d (at %d ms)", my_slot, my_slot * 50);
+    } else {
+        ESP_LOGW(TAG, "    My slot: NOT ASSIGNED");
+    }
+}
+
+// ============================================================================
+// CONSOLE COMMANDS
 // ============================================================================
 
 static int cmd_members(int argc, char **argv)
 {
     membership_print_table();
+    return 0;
+}
+
+static int cmd_leader(int argc, char **argv)
+{
+    uint16_t leader_id = leader_election_get_leader();
+    bool is_leader = leader_election_is_leader();
+    
+    printf("\n=== Leader Information ===\n");
+    if (leader_id == 0) {
+        printf("Leader: NONE (no leader elected yet)\n");
+    } else {
+        printf("Leader Node ID: %u\n", leader_id);
+        printf("I am leader: %s\n", is_leader ? "YES" : "NO");
+    }
+    
+    leader_state_t state = leader_election_get_state();
+    const char *state_str = "UNKNOWN";
+    switch (state) {
+        case LEADER_STATE_FOLLOWER: state_str = "FOLLOWER"; break;
+        case LEADER_STATE_CANDIDATE: state_str = "CANDIDATE"; break;
+        case LEADER_STATE_LEADER: state_str = "LEADER"; break;
+    }
+    printf("State: %s\n", state_str);
+    printf("\n");
+    
+    return 0;
+}
+
+static int cmd_schedule(int argc, char **argv)
+{
+    tdma_slot_t schedule[TDMA_MAX_SLOTS];
+    int num_slots = leader_election_get_schedule(schedule, TDMA_MAX_SLOTS);
+    
+    printf("\n=== TDMA Schedule (%d slots) ===\n", num_slots);
+    if (num_slots == 0) {
+        printf("No schedule available yet.\n\n");
+        return 0;
+    }
+    
+    printf("%-8s %-10s %-15s\n", "Slot", "Node ID", "Time (ms)");
+    printf("--------------------------------------------\n");
+    
+    int my_slot = leader_election_get_my_slot();
+    for (int i = 0; i < num_slots; i++) {
+        if (schedule[i].active) {
+            const char *marker = (i == my_slot) ? " <-- ME" : "";
+            printf("%-8d %-10u %-15d%s\n", 
+                   i, 
+                   schedule[i].node_id, 
+                   i * TDMA_SLOT_DURATION_MS,
+                   marker);
+        }
+    }
+    printf("\n");
+    
+    if (my_slot >= 0) {
+        int time_to_slot = leader_election_get_time_to_slot();
+        printf("My slot: %d\n", my_slot);
+        printf("Time to my slot: %d ms\n", time_to_slot);
+    } else {
+        printf("My slot: NOT ASSIGNED\n");
+    }
+    printf("\n");
+    
     return 0;
 }
 
@@ -65,6 +159,22 @@ static void register_console_commands(void)
         .func = &cmd_members,
     };
     esp_console_cmd_register(&members_cmd);
+    
+    const esp_console_cmd_t leader_cmd = {
+        .command = "leader",
+        .help = "Show leader information",
+        .hint = NULL,
+        .func = &cmd_leader,
+    };
+    esp_console_cmd_register(&leader_cmd);
+    
+    const esp_console_cmd_t schedule_cmd = {
+        .command = "schedule",
+        .help = "Show TDMA schedule",
+        .hint = NULL,
+        .func = &cmd_schedule,
+    };
+    esp_console_cmd_register(&schedule_cmd);
 }
 
 // ============================================================================
@@ -74,7 +184,7 @@ static void register_console_commands(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, "ESP32 Swarm Framework");
+    ESP_LOGI(TAG, "ESP32 Swarm Framework - Step 4");
     ESP_LOGI(TAG, "==============================================");
     
     // Initialize NVS
@@ -85,7 +195,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     
-    // Initialize node configuration (loads node_id from NVS)
+    // Initialize node configuration
     node_config_init();
     
     // Get our node identity
@@ -120,36 +230,34 @@ void app_main(void)
     
     ESP_LOGI(TAG, "All modules initialized");
     
-    // Start serial console for provisioning
+    // Start serial console
     node_config_start_console();
     
-    // Register additional console commands
+    // Register console commands
     register_console_commands();
-    
-    // ========================================================================
-    //  Start membership discovery if provisioned
-    // ========================================================================
     
     if (!node_config_is_provisioned()) {
         ESP_LOGW(TAG, "=== NODE NOT PROVISIONED ===");
         ESP_LOGW(TAG, "Entering console mode only.");
         ESP_LOGW(TAG, "Use 'set_node_id <id>' to provision, then restart.");
-        ESP_LOGI(TAG, "Available commands: help, info, get_node_id, set_node_id");
         return;
     }
     
-    // Register membership callbacks
+    // Register callbacks
     membership_register_joined_cb(on_member_joined);
     membership_register_lost_cb(on_member_lost);
+    leader_election_register_leader_changed_cb(on_leader_changed);
+    leader_election_register_schedule_updated_cb(on_schedule_updated);
     
     // Start membership discovery
-    ESP_LOGI(TAG, "=== STARTING SWARM MEMBERSHIP DISCOVERY ===");
-    ESP_LOGI(TAG, "Node will broadcast HELLO every 2 seconds");
-    ESP_LOGI(TAG, "Auto-discovering peers...");
+    ESP_LOGI(TAG, "=== STARTING SWARM PROTOCOLS ===");
+    ESP_LOGI(TAG, "Membership discovery active");
+    ESP_LOGI(TAG, "Leader election active");
+    ESP_LOGI(TAG, "TDMA beacon scheduling active");
     
     membership_start();
+    leader_election_start();
     
-    ESP_LOGI(TAG, "System running. Membership discovery active.");
-    ESP_LOGI(TAG, "Console commands: help, info, members");
-    ESP_LOGI(TAG, "Type 'members' to see discovered nodes.");
+    ESP_LOGI(TAG, "System running.");
+    ESP_LOGI(TAG, "Console commands: help, info, members, leader, schedule");
 }

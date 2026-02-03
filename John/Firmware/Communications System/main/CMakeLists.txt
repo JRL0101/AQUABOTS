@@ -1,5 +1,5 @@
 # CMakeLists.txt for main component
-# Step 3: Updated membership module (no longer stub)
+# Step 4: Leader election + TDMA beacon (no longer stub)
 
 idf_component_register(
     SRCS 

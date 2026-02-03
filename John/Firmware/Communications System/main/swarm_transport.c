@@ -25,7 +25,11 @@ static const char *TAG = "TRANSPORT";
 
 static transport_peer_t peer_table[TRANSPORT_MAX_PEERS];
 static int peer_count = 0;
-static transport_recv_cb_t user_recv_callback = NULL;
+
+// Support multiple receive callbacks
+#define MAX_RECV_CALLBACKS 4
+static transport_recv_cb_t recv_callbacks[MAX_RECV_CALLBACKS] = {NULL};
+static int recv_callback_count = 0;
 
 // ============================================================================
 // DEMO MODE STATE (Step 1 only)
@@ -123,9 +127,11 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info,
         peer_table[slot].last_seen_ms = esp_log_timestamp();
     }
     
-    // Call user callback if registered
-    if (user_recv_callback) {
-        user_recv_callback(src_mac, data, len, rssi);
+    // Call all registered callbacks
+    for (int i = 0; i < recv_callback_count; i++) {
+        if (recv_callbacks[i]) {
+            recv_callbacks[i](src_mac, data, len, rssi);
+        }
     }
 }
 
@@ -165,14 +171,29 @@ esp_err_t swarm_transport_init(void)
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_register_send_cb(espnow_send_cb));
     ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_recv_cb));
-    
+
+    // Add broadcast peer (required for ESP-NOW broadcast)
+    esp_now_peer_info_t broadcast_peer = {
+        .peer_addr = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+        .channel = TRANSPORT_CHANNEL,
+        .ifidx = WIFI_IF_STA,
+        .encrypt = false,
+    };
+    ESP_ERROR_CHECK(esp_now_add_peer(&broadcast_peer));
+    ESP_LOGI(TAG, "Broadcast peer added");
+
     ESP_LOGI(TAG, "Transport initialized");
     return ESP_OK;
 }
 
 void swarm_transport_register_recv_cb(transport_recv_cb_t cb)
 {
-    user_recv_callback = cb;
+    if (recv_callback_count < MAX_RECV_CALLBACKS) {
+        recv_callbacks[recv_callback_count++] = cb;
+        ESP_LOGI(TAG, "Registered receive callback (%d total)", recv_callback_count);
+    } else {
+        ESP_LOGE(TAG, "Max receive callbacks reached!");
+    }
 }
 
 esp_err_t swarm_transport_send(const uint8_t *dest_mac, const uint8_t *data, int len)
