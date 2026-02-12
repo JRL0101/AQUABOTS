@@ -1,0 +1,118 @@
+import machine
+import onewire
+import ds18x20
+import time
+import os
+
+# ===== SETTINGS =====
+DATA_PIN = 15
+CSV_FILENAME = "data_log.csv"
+LOG_INTERVAL = 1
+GPS_UART_ID = 2
+RX_PIN = 16
+TX_PIN = 17
+# ====================
+
+# --- Temperature ---
+dat = machine.Pin(DATA_PIN)
+ds = ds18x20.DS18X20(onewire.OneWire(dat))
+roms = ds.scan()
+
+# --- GPS ---
+gps = machine.UART(GPS_UART_ID, baudrate=9600, rx=RX_PIN, tx=TX_PIN)
+
+# --- Create CSV ---
+if CSV_FILENAME not in os.listdir():
+    with open(CSV_FILENAME, "w") as f:
+        f.write("time_UTC,lat,lon,alt_m,speed_mps,sats,fix_quality,hdop,temp_C\n")
+
+# --- Helper Functions ---
+
+def convert_to_decimal(raw, direction):
+    if not raw:
+        return None
+
+    if len(raw) > 7:  # longitude
+        degrees = float(raw[:3])
+        minutes = float(raw[3:])
+    else:             # latitude
+        degrees = float(raw[:2])
+        minutes = float(raw[2:])
+
+    decimal = degrees + (minutes / 60)
+
+    if direction in ['S', 'W']:
+        decimal *= -1
+
+    return decimal
+
+def parse_gprmc(parts):
+    if parts[2] != 'A':
+        return None, None, None, None
+
+    raw_time = parts[1]
+    raw_date = parts[9]
+
+    timestamp = f"20{raw_date[4:6]}-{raw_date[2:4]}-{raw_date[0:2]} " \
+                f"{raw_time[0:2]}:{raw_time[2:4]}:{raw_time[4:6]}"
+
+    lat = convert_to_decimal(parts[3], parts[4])
+    lon = convert_to_decimal(parts[5], parts[6])
+
+    speed_knots = float(parts[7]) if parts[7] else 0
+    speed_mps = speed_knots * 0.514444
+
+    return timestamp, lat, lon, speed_mps
+
+def parse_gpgga(parts):
+    fix_quality = int(parts[6]) if parts[6] else 0
+    sats = int(parts[7]) if parts[7] else 0
+    hdop = float(parts[8]) if parts[8] else 0
+    altitude = float(parts[9]) if parts[9] else 0
+
+    return altitude, sats, fix_quality, hdop
+
+print("Drone telemetry logging started...")
+
+log_file = open(CSV_FILENAME, "a")
+
+# Store latest values
+timestamp = lat = lon = speed = None
+altitude = sats = fix_quality = hdop = None
+
+while True:
+
+    # --- Read GPS Lines ---
+    while gps.any():
+        line = gps.readline()
+        if not line:
+            continue
+
+        try:
+            msg = line.decode('utf-8').strip()
+            parts = msg.split(',')
+
+            if msg.startswith('$GPRMC'):
+                timestamp, lat, lon, speed = parse_gprmc(parts)
+
+            elif msg.startswith('$GPGGA'):
+                altitude, sats, fix_quality, hdop = parse_gpgga(parts)
+
+        except:
+            pass
+
+    # --- Temperature ---
+    ds.convert_temp()
+    time.sleep_ms(200)
+    temp = None
+    for rom in roms:
+        temp = ds.read_temp(rom)
+
+    # --- Log when we have valid fix ---
+    if timestamp and fix_quality and fix_quality > 0:
+        entry = f"{timestamp},{lat},{lon},{altitude},{speed},{sats},{fix_quality},{hdop},{temp}\n"
+        log_file.write(entry)
+        log_file.flush()
+        print(entry.strip())
+
+    time.sleep(LOG_INTERVAL)
