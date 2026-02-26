@@ -1,11 +1,10 @@
 # Mayra's Original Dashboard Code
 
-This folder contains an exact, unmodified copy of the dashboard code as Mayra
-originally wrote it.  Nothing here has been changed.
+This contains an exact, unmodified copy of your dashboard code.  Nothing here has been changed.
 
 The working version of the dashboard is one level up in `ground_station/`.
 That version has been extended to connect to the ESP32-S3 sensor pipeline and
-the MQTT cloud uplink, but Mayra's logic, structure, and UI are preserved.
+the MQTT cloud uplink, but your logic, structure, and UI are untouched.
 
 ## What changed in the integrated version (ground_station/)
 
@@ -16,7 +15,7 @@ the MQTT cloud uplink, but Mayra's logic, structure, and UI are preserved.
 | `templates/index.html` | Added `id=` attributes to sensor/swarm fields so `telemetry.js` can populate them; added Swarm Status panel; loads `telemetry.js`; signaling URL injected by Flask |
 | `static/js/webrtc.js` | Reads signaling server URL from `window.AQUABOT_SIGNALING_URL` (set by Flask template) instead of hardcoded `192.168.1.187` |
 
-## New files added (not in Mayra's original)
+## New files added
 
 | File | Purpose |
 |---|---|
