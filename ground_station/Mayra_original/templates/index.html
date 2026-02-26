@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AquaBot Dashboard</title>
+
+    <!-- Mobile + WebRTC friendliness -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <div class="header">
+        <h1>AquaBot Dashboard</h1>
+        <p>Team 26061 | University of Arizona</p>
+    </div>
+
+    <!-- MAIN TWO-COLUMN LAYOUT -->
+    <div class="container">
+
+        <!-- LEFT COLUMN: GEO OVERLAY -->
+        <div class="panel-column">
+            <h2 class="panel-title">Geo Overlay</h2>
+            <div class="panel geo-panel">
+                <p><em>Map / GPS Overlay Placeholder</em></p>
+                <p>🧭 N</p>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: LIVE VIDEO -->
+        <div class="panel-column">
+            <h2 class="panel-title">Live Video Stream</h2>
+
+            <div class="panel video-panel" style="position:relative; text-align:center;">
+
+                <!-- 🚨 VIDEO ELEMENT (CRITICAL ATTRIBUTES) -->
+                <video
+                    id="webrtcVideo"
+                    autoplay
+                    playsinline
+                    muted
+                    controls="false"
+                    style="
+                        width:100%;
+                        border-radius:8px;
+                        background:black;
+                    ">
+                </video>
+
+                <!-- RECORDING INDICATOR -->
+                <div id="recordIndicator"
+                     style="
+                        position:absolute;
+                        bottom:10px;
+                        left:50%;
+                        transform:translateX(-50%);
+                        background:rgba(0,0,0,0.6);
+                        padding:6px 15px;
+                        border-radius:8px;
+                        font-size:18px;
+                        color:#ff4444;
+                        font-weight:bold;
+                        display:none;
+                     ">
+                    ● Recording
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTTOM ROW -->
+    <div class="bottom-row">
+
+        <!-- SENSOR DATA -->
+        <div class="sensor-data">
+            <h3>Sensor Data</h3>
+            <p>🌡️ <strong>Temperature:</strong> -- °C</p>
+            <p>💧 <strong>pH:</strong> --</p>
+            <p>🌊 <strong>Salinity:</strong> -- PSU</p>
+        </div>
+
+        <!-- ZOOM CONTROLS -->
+        <div class="buttons">
+            <button id="zoomIn">Zoom In ➕</button>
+            <button id="zoomOut">Zoom Out ➖</button>
+        </div>
+
+        <!-- VIDEO STATS -->
+        <div class="video-stats">
+            <p>📡 <strong>Video Bandwidth:</strong> <span id="videoBandwidth">--</span> Mbps</p>
+            <p>⏱️ <strong>Video Latency:</strong> <span id="videoLatency">--</span> ms</p>
+        </div>
+
+        <!-- RECORD CONTROLS -->
+        <div id="record-controls" style="margin-top:20px; text-align:center;">
+            <button id="startRecord"
+                    style="padding:10px 20px; margin-right:10px; background-color:green; color:white;">
+                Start Recording
+            </button>
+
+            <button id="stopRecord"
+                    style="padding:10px 20px; background-color:red; color:white;">
+                Stop Recording
+            </button>
+        </div>
+
+        <!-- NETWORK PERFORMANCE -->
+        <div class="bandwidth-panel">
+            <h3>Network Performance (Starlink)</h3>
+
+            <p>📶 <strong>Download:</strong> <span id="download">--</span> Mbps</p>
+            <p>📤 <strong>Upload:</strong> <span id="upload">--</span> Mbps</p>
+            <p>🕒 <strong>Latency:</strong> <span id="latency">--</span> ms</p>
+            <p>🔁 <strong>Jitter:</strong> <span id="jitter">--</span> ms</p>
+            <p>📦 <strong>Packet Loss:</strong> <span id="loss">--</span> %</p>
+            <p>🛰️ <strong>Status:</strong> <span id="status">Idle</span></p>
+
+            <button id="runTest">Run Bandwidth Test</button>
+            <p id="test-status"></p>
+        </div>
+
+    </div>
+
+    <!-- JAVASCRIPT -->
+    <script src="{{ url_for('static', filename='js/webrtc.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bandwidth.js') }}"></script>
+
+</body>
+</html>
