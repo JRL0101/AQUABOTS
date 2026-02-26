@@ -114,12 +114,11 @@ Open `http://<jetson-ip>:5000` in a browser.
 
 | Name | Role |
 |---|---|
-| John | ESP32-S3 swarm firmware |
+| John | ESP32-S3 swarm firmware, Power System & Integration |
 | Mayra | Ground station dashboard |
 | Jamie | Water quality sensors (pH, salinity, temperature) |
 | Robert | Propulsion / ESC hardware |
-| Kama | Power systems |
-| Alex | Navigation / Pixhawk integration |
+
 
 ---
 
