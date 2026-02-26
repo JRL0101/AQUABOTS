@@ -1,0 +1,204 @@
+================================================================================
+STEP 7: OBSTACLE SENSOR SCAFFOLDING - QUICK INSTALL GUIDE
+================================================================================
+
+PREREQUISITES:
+- Steps 1-6 verified working
+- Two provisioned ESP32-S3 boards
+
+================================================================================
+FILE CHANGES
+================================================================================
+
+1. REPLACE obstacle_sense.h (in main/ directory)
+   - Copy the new obstacle_sense.h over the old stub header
+
+2. REPLACE obstacle_sense.c (in main/ directory)
+   - Copy the new obstacle_sense.c over the old stub (~650 lines)
+
+3. UPDATE main.c (in main/ directory)
+   - Replace with the new main.c
+   - Changes: Step 7 header, obstacle callbacks, obstacle_sense_start()
+
+4. UPDATE swarm_protocol.h (in main/ directory)
+   - Add to your message type definitions:
+   
+     MSG_TYPE_OBSTACLE = 0x07,
+
+================================================================================
+BUILD AND FLASH
+================================================================================
+
+# Build
+idf.py build
+
+# Flash Node 1
+idf.py -p COM9 flash monitor
+
+# Flash Node 2
+idf.py -p COM7 flash monitor
+
+================================================================================
+VERIFICATION SEQUENCE
+================================================================================
+
+1. CHECK SENSOR STATUS (on any node)
+   
+   swarm> sensors
+   
+   Expected output:
+   === Obstacle Sensor Status ===
+   Driver registered: YES
+   Running: YES
+   Mock mode: ENABLED
+   Mock obstacles: 0
+   Range max: 5000 mm
+   Field of view: 120°
+   Scan count: XX
+   Broadcast count: XX
+
+2. ADD MOCK OBSTACLES (on Node 2 - leader)
+   
+   swarm> mock_add 2000 0
+   swarm> mock_add 1500 45
+   swarm> mock_add 3000 -30
+   
+   Expected: "Mock obstacle added: XXXX mm @ XX°"
+
+3. VIEW LOCAL DETECTIONS
+   
+   swarm> detections
+   
+   Expected: Shows 3 obstacles with range/bearing
+
+4. CHECK LOGS FOR BROADCASTS
+   
+   Look for:
+   I (xxxxx) MAIN: *** LOCAL SCAN: 3 obstacles detected ***
+   I (xxxxx) MAIN:     [0] 2000 mm @ 0°
+   I (xxxxx) MAIN:     [1] 1500 mm @ 45°
+   I (xxxxx) MAIN:     [2] 3000 mm @ -30°
+
+5. VERIFY REMOTE RECEPTION (on Node 1 - follower)
+   
+   swarm> detections
+   
+   Expected: Shows Node 2's obstacles as "remote"
+   
+   Look for log:
+   I (xxxxx) MAIN: *** REMOTE SCAN from node 2: 3 obstacles ***
+
+6. TEST PATH CHECKING (on any node)
+   
+   swarm> path_check 0
+   Expected: "Path 0° (±15°) to 3000 mm: BLOCKED"
+   
+   swarm> path_check 90
+   Expected: "Path 90° (±15°) to 3000 mm: CLEAR"
+   
+   swarm> path_check 45
+   Expected: "Path 45° (±15°) to 3000 mm: BLOCKED"
+
+7. CLEAR MOCK OBSTACLES
+   
+   swarm> mock_clear
+   swarm> detections
+   
+   Expected: "No obstacles detected"
+
+================================================================================
+CONSOLE COMMANDS REFERENCE
+================================================================================
+
+SENSOR COMMANDS:
+  sensors              - Show sensor status
+  detections           - Show all detected obstacles (local + remote)
+  mock_add <r> <b>     - Add mock obstacle (range_mm, bearing_deg)
+  mock_clear           - Clear all mock obstacles
+  path_check <bearing> - Check if path is clear
+
+EXISTING COMMANDS (still work):
+  members              - Show member table
+  leader               - Show leader info
+  schedule             - Show TDMA schedule
+  formation <type>     - Set formation
+  fstatus              - Show formation status
+  goto <x> <y> [h]     - Navigate to waypoint
+  hold/stop/resume     - Control commands
+  status               - Show command status
+
+================================================================================
+EXPECTED BEHAVIOR
+================================================================================
+
+SCANNING:
+- Local scans occur every 100ms (10 Hz)
+- Broadcasts occur every 500ms (2 Hz)
+- Remote scans timeout after 2000ms
+
+MOCK MODE:
+- Enabled by default (no hardware needed)
+- Mock obstacles are detected in local scans
+- Broadcasts go to all nodes
+- Other nodes receive and store remote scans
+
+PATH CHECKING:
+- Checks all scans (local + remote)
+- Default corridor: ±15° from bearing
+- Default range: 3000mm
+- Returns BLOCKED if any obstacle in corridor
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+PROBLEM: "Scan count: 0"
+SOLUTION: Call obstacle_sense_start() - check main.c integration
+
+PROBLEM: Remote obstacles not showing
+SOLUTION: Check both nodes running, verify MSG_TYPE_OBSTACLE added
+
+PROBLEM: Compile error "MSG_TYPE_OBSTACLE undeclared"
+SOLUTION: Add #define MSG_TYPE_OBSTACLE 0x07 to swarm_protocol.h
+
+PROBLEM: Mock obstacles not appearing
+SOLUTION: Verify mock_enabled = true in sensors output
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+[x] sensors command shows correct status
+[x] mock_add creates obstacles that appear in detections
+[x] Local scans are broadcast to swarm
+[x] Remote scans appear on other nodes
+[x] path_check correctly identifies blocked paths
+[x] mock_clear removes all obstacles
+[x] Previous features (formation, commands) still work
+
+================================================================================
+SENSOR HARDWARE RECOMMENDATIONS
+================================================================================
+
+For Step 8 (real hardware integration), recommended sensors:
+
+BEST VALUE: Hi-Link LD2450 (~$15-20)
+  - 24 GHz FMCW radar
+  - 0.2-6m range
+  - 120° FOV
+  - UART interface
+  - Penetrates fiberglass hull
+  - Tracks up to 3 targets
+
+Where to buy:
+  - AliExpress: "LD2450 radar module"
+  - Amazon: "HLK-LD2450"
+
+Alternative: Acconeer XM125 (~$50)
+  - 60 GHz pulsed coherent
+  - More precise but single-point
+  - Good for ranging applications
+
+See STEP7_SUMMARY.md for detailed sensor comparison.
+
+================================================================================
