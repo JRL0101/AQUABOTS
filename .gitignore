@@ -1,1 +1,55 @@
+# -----------------------------------------------------------------------
+# AQUABOTS — root .gitignore
+# -----------------------------------------------------------------------
+
+# Windows system files
+Desktop.ini
+Thumbs.db
+ehthumbs.db
+
+# macOS metadata
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+venv/
+.venv/
+env/
+
+# ESP-IDF / firmware build artifacts
+firmware/build/
 Raspberry_Pi_Code/build/
+
+# ESP-IDF generated configs (regenerated from sdkconfig.defaults)
+firmware/sdkconfig
+firmware/sdkconfig.old
+
+# Compiled objects
+*.o
+*.a
+*.out
+*.elf
+*.bin
+*.map
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+
+# Editor / IDE
+*.swp
+*.swo
+*.bak
+*.tmp
+.clangd/
+.ccls-cache/
+compile_commands.json
+*.suo
+*.user
