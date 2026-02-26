@@ -4,12 +4,16 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=c:\\Users\\johnr\\AQUABOTS\\John\\Firmware\\Communications System\\build"
+    "--compile-commands-dir=c:\\Users\\johnr\\AQUABOTS\\John\\Firmware\\swarmLogic\\build"
   ],
   "idf.portWin": "COM8",
+  "idf.buildPath": "${workspaceFolder}\\build",
   "idf.flashType": "UART",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3"
   },
-  "idf.currentSetup": "C:\\Users\\johnr\\esp\\v5.5.2\\esp-idf"
+  "idf.currentSetup": "C:\\Users\\johnr\\esp\\v5.5.2\\esp-idf",
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+  ]
 }
