@@ -262,9 +262,18 @@ void node_config_start_console(void)
     repl_config.prompt = "swarm> ";
     repl_config.max_cmdline_length = 256;
     
-    // Install console REPL environment (USB Serial/JTAG for ESP32-S3)
+    // Install console REPL environment based on sdkconfig
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
     esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
+    ESP_LOGI(TAG, "Console transport: USB_SERIAL_JTAG");
+#elif CONFIG_ESP_CONSOLE_UART_DEFAULT || CONFIG_ESP_CONSOLE_UART_CUSTOM
+    esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
+    ESP_LOGI(TAG, "Console transport: UART");
+#else
+#error "No supported console backend enabled. Enable UART or USB Serial/JTAG in menuconfig."
+#endif
     
     // Register commands
     ESP_ERROR_CHECK(esp_console_register_help_command());
